@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Breathing Galaxies — mouse + UFO (original progression)</title>
+  <style>
+    html,body { height:100%; margin:0; background:#000; overflow:hidden; }
+    canvas { display:block; width:100%; height:100%; }
+  </style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<script>
+/*
+  Goal:
+  - Basic1: Original Breathing Galaxies (unchanged spiral/hypotrochoid behavior).
+  - Basic2: ufo.png drawn inside the same canvas, centered on mouse.
+  - TASK1: Link mouse position with ufo.png
+  - TASK2: Activate spirals with mouse movement
+  Important tweak: Do NOT stop the main spiral loop shortly after the mouse stops.
+  Instead, we keep the original-style interval running (as in the original), restarting it on each new mouse move.
+  This preserves the full spiral progression.
+*/
+
+window.onload = function () {
+  C = Math.cos; S = Math.sin;
+
+  w = window; j = document;
+  d = j.getElementById("c");
+  c = d.getContext("2d");
+
+  function resize() {
+    W = d.width = w.innerWidth;
+    H = d.height = w.innerHeight;
+    c.fillStyle = "#000";
+    c.fillRect(0,0,W,H);
+  }
+  window.addEventListener('resize', resize, false);
+  resize();
+
+  c.globalCompositeOperation = "lighter";
+  c.lineWidth = 0.2;
+  c.lineCap = "round";
+
+  // Original variables (kept same names for behavior parity)
+  var bool = 0, t = 0;
+  var a = 0, b = 0;           // previous point
+  var A = 0, B = 0, X = 0, Y = 0; // coords
+  var R = 0.3, r = 0.25;
+  var U = 0, D = 9;
+  var g = 360 * Math.PI / 180;
+  var e = 0;
+
+  // Load UFO sprite (drawn into the canvas at mouse position)
+  var ufo = new Image();
+  ufo.crossOrigin = 'anonymous';
+  ufo.src = 'ufo.png'; // put transparent ufo.png in the same folder or change to raw URL
+  var ufoLoaded = false;
+  var ufoW = 96, ufoH = 0;
+  ufo.onload = function(){
+    ufoLoaded = true;
+    if (ufo.naturalWidth && ufo.naturalHeight) {
+      ufoH = Math.round(ufoW * (ufo.naturalHeight / ufo.naturalWidth));
+    } else {
+      ufoH = Math.round(ufoW * 0.5);
+    }
+  };
+  ufo.onerror = function(){
+    // fallback: try the raw.githubusercontent URL (CORS-enabled)
+    if (ufo.src.indexOf('raw.githubusercontent') === -1) {
+      ufo.src = 'https://raw.githubusercontent.com/pl8o808/mark_of_cain/main/ufo.png';
+    }
+  };
+
+  // The original frame function (keeps exact hypotrochoid logic)
+  function f_frame(l) {
+    c.save();
+    c.globalCompositeOperation = "source-over";
+    if (l != 1) {
+      c.fillStyle = "rgba(0,0,0,0.02)";
+      c.fillRect(0, 0, W, H);
+    }
+    c.restore();
+
+    for (var i = 25; i --; ) {
+      c.beginPath();
+      if (D > 450 || e) {
+        if (!e) e = 1;
+        if (D < 0.1) e = 0;
+        t -= g;
+        D -= 0.1;
+      } else {
+        t += g;
+        D += 0.1;
+      }
+      var q = (R / r - 1) * t;
+      var x = (R - r) * C(t) + D * C(q) + (A + (X - A) * (i / 25)) + (r - R);
+      var y = (R - r) * S(t) - D * S(q) + (B + (Y - B) * (i / 25));
+      if (a) { c.moveTo(a, b); c.lineTo(x, y); }
+      c.strokeStyle = "hsla(" + (U % 360) + ",100%,50%,0.75)";
+      c.stroke();
+      a = x; b = y;
+    }
+    U -= 0.5;
+    A = X; B = Y;
+  }
+
+  // Manage the interval exactly like the original: restart it on each mouse move.
+  // Crucial: do NOT stop it after mouse stops — leave it running so the spiral progression completes.
+  var T = null;
+  function ensureIntervalRestarted() {
+    // if there is an existing interval, clear it and immediately call a 1-frame f to emulate original
+    if (T) {
+      clearInterval(T);
+      if (D == 9) { D = Math.random() * 15; f_frame(1); } // emulate original "kick"
+    }
+    // start a new interval; we intentionally do NOT clear it later — this preserves full progression
+    T = setInterval(function(){ f_frame(); }, 16);
+  }
+
+  // Pointer handlers: update coords like original and restart the interval
+  d.addEventListener('pointermove', function(ev){
+    X = ev.pageX; Y = ev.pageY;
+    a = 0; b = 0;
+    A = X; B = Y;
+    R = (ev.pageX / W * 999 >> 0) / 999;
+    r = (ev.pageY / H * 999 >> 0) / 999;
+    U = ev.pageX / H * 360 >> 0;
+    D = 9;
+    g = 360 * Math.PI / 180;
+
+    ensureIntervalRestarted();
+  }, { passive: true });
+
+  d.addEventListener('pointerdown', function(ev){
+    X = ev.pageX; Y = ev.pageY;
+    A = X; B = Y;
+    a = 0; b = 0;
+    R = (X / W * 999 >> 0) / 999;
+    r = (Y / H * 999 >> 0) / 999;
+    U = X / H * 360 >> 0;
+    D = 9;
+    // give an immediate punch as original did
+    f_frame(0); setTimeout(function(){ f_frame(0); }, 30);
+
+    ensureIntervalRestarted();
+  }, { passive: true });
+
+  // Draw loop: draw the UFO inside the same canvas (centered at X,Y) so spirals and UFO are on the same surface
+  function drawLoop() {
+    // draw the ufo at current X,Y (if available) on top of canvas
+    if (typeof X === 'number' && typeof Y === 'number') {
+      if (ufoLoaded) {
+        c.save();
+        c.globalCompositeOperation = 'source-over';
+        try {
+          var drawW = ufoW, drawH = ufoH || Math.round(ufoW * (ufo.naturalHeight / ufo.naturalWidth || 0.5));
+          c.drawImage(ufo, X - drawW/2, Y - drawH/2, drawW, drawH);
+        } catch (e) {
+          // ignore cross-origin draw errors (fallback still works)
+        }
+        c.restore();
+      } else {
+        // placeholder (no colored artifacts)
+        c.save();
+        c.strokeStyle = 'magenta';
+        c.lineWidth = 2;
+        c.strokeRect((X||0) - 20, (Y||0) - 10, 40, 20);
+        c.restore();
+      }
+    }
+
+    requestAnimationFrame(drawLoop);
+  }
+  requestAnimationFrame(drawLoop);
+
+  // emulate original startup
+  (function startup(){
+    X = 300; Y = 290;
+    A = X; B = Y;
+    R = (X / W * 999 >> 0) / 999;
+    r = (Y / H * 999 >> 0) / 999;
+    U = X / H * 360 >> 0;
+    D = 9;
+    a = 0; b = 0;
+    // start interval and seed frames same as original
+    ensureIntervalRestarted();
+    f_frame(1);
+    f_frame(1);
+  })();
+
+  // Optional helper from console:
+  window.spawnActivationAt = function(px, py) {
+    X = px; Y = py;
+    A = X; B = Y;
+    a = 0; b = 0;
+    R = (X / W * 999 >> 0) / 999;
+    r = (Y / H * 999 >> 0) / 999;
+    U = X / H * 360 >> 0;
+    D = 9;
+    f_frame(0);
+  };
+};
+</script>
+
+</body>
+</html>
